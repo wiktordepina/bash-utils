@@ -20,7 +20,7 @@ function gvenv {
     environments+=("${k%'/'}")
   done
   
-  # enviromnet name autocompletion
+  # environment name autocompletion
   complete -W "$(echo ${environments[@]})" "${main_func_name}"
 
   list_environments() {

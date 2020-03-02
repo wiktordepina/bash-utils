@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+
+
+# Virtual Environment Manager for Python >= 3.3
+function gvenv {
+
+  # disable history so I can printf ! characters
+  histchars=
+
+  if [ -z ${PY_GLOBAL_VENVS_ROOT+x} ]
+  then
+    export PY_GLOBAL_VENVS_ROOT="$HOME/.gvenvs"
+  fi
+
+  environments=()
+  main_func_name=${FUNCNAME[0]}
+
+  for k in $(ls -F --color=never "$PY_GLOBAL_VENVS_ROOT" | grep /)
+  do
+    environments+=("${k%'/'}")
+  done
+  
+  # enviromnet name autocompletion
+  complete -W "$(echo ${environments[@]})" "${main_func_name}"
+
+  list_environments() {
+    echo
+    echo "Available environments:"
+    printf '  \e[1m\e[3m\e[34m%s\e[0m\e[0m\e[0m\n' "${environments[@]}"
+    echo
+  }
+
+  print_usage() {
+    if [[ "$1" == "--head" ]]
+    then
+      printf "\n\e[35m\e[1mGlobal Virtual Environment\e[0m\e[0m management tool for \e[33m\e[1mPython\e[3m>=3.3\e[0m\e[0m\e[0m\n\n\n"
+    fi
+    echo "Usage:"
+    printf "  %s \e[1m\e[3m<env_name>\e[0m\e[0m\n" "$main_func_name"
+    printf "  %s -l | --list\n" "$main_func_name"
+    printf "  %s -a | --add \e[1m\e[3m<env_name>\e[0m\e[0m [-r \e[1m\e[3m<requirements_file>\e[0m\e[0m]\n" "$main_func_name"
+    printf "  %s -d | --delete \e[1m\e[3m<env_name>\e[0m\e[0m\n" "$main_func_name"
+    printf "  %s -c | --clone \e[1m\e[3m<base_env_name> <new_env_name>\e[0m\e[0m\n" "$main_func_name"
+    printf "  %s -u | --upgrade \e[1m\e[3m<env_name>\e[0m\e[0m\n" "$main_func_name"
+    printf "  %s -i | --info \e[1m\e[3m<env_name>\e[0m\e[0m\n" "$main_func_name"
+    printf "  %s -x | --execute \e[1m\e[3m<env_name> <command>\e[0m\e[0m\n" "$main_func_name"
+    printf "\nTo activate existing environment:\n"
+    printf "  %s \e[1m\e[3m<env_name>\e[0m\e[0m\n\n" "$main_func_name"
+    printf "To deactivate current environment:\n  \e[1m\e[3mdeactivate\e[0m\e[0m\n\n\n"
+    echo "Options:"
+    echo "  -l, --list          list available environments"
+    printf "  -a, --add           create new \e[1m\e[3m<env_name>\e[0m\e[0m\n"
+    printf "  -r                  \e[3m[optional, only with -a]\e[0m install packages from \e[1m\e[3m<requirements_file>\e[0m\e[0m after creation\n"
+    printf "  -d, --delete        delete environment \e[1m\e[3m<env_name>\e[0m\e[0m\n"
+    printf "  -c, --clone         create \e[1m\e[3m<new_env_name>\e[0m\e[0m by cloning \e[1m\e[3m<base_env_name>\e[0m\e[0m\n"
+    printf "  -u, --upgrade       upgrade Python in environment \e[1m\e[3m<env_name>\e[0m\e[0m (assuming Python has been upgraded in-place)\n"
+    printf "  -i, --info          list installed packages in environment \e[1m\e[3m<env_name>\e[0m\e[0m\n"
+    printf "  -x, --execute       execute \e[1m\e[3m<command>\e[0m\e[0m using Python interpreter and installed packages from \e[1m\e[3m<env_name>\e[0m\e[0m\n\n"
+  }
+
+  try_deactivate() {
+    if [ "$(type -t deactivate)" = 'function' ]
+    then
+      deactivate
+    fi
+  }
+
+  env_exists() {
+    if [ $# -eq 0 ] || [ "$1" == "--silent" ] || [ "$1" == "" ]
+    then
+      if [ ! "$1" == "--silent" ]
+      then
+        printf "\n\n\e[31m\e[1m!!!\e[0m Environment's name missing\n\n"
+      fi
+      return 1
+    fi
+
+    is_env_in=false
+    for k in "${environments[@]}"
+    do
+      if [ "$1" == "$k" ]
+      then
+        is_env_in=true
+      fi
+    done
+
+    if ! $is_env_in
+    then
+      if [ ! "$2" == "--silent" ]
+      then
+        printf "\n\n\e[31m\e[1m!!!\e[0m Global vEnvironment \e[1m\e[3m%s\e[0m\e[0m doesn't exist\n\n" "$1"
+        list_environments
+      fi
+      return 1
+    fi
+    return 0
+  }
+
+  # Mainloop
+  case $1 in
+    -h|--help|"")
+      print_usage --head
+      ;;
+
+    -l|--list)
+      list_environments
+      ;;
+
+    -a|--add)
+      if [ $# -le 1 ]; then printf "\n\e[31m\e[1m!!!\e[0m Environment's name missing\n\n"; return 1; fi
+
+      if env_exists "$2" --silent
+      then
+        printf "\n\e[31m\e[1m!!!\e[0m Environment \e[1m\e[3m%s\e[0m\e[0m already exists\n\n" "$2"
+        return 1
+      fi
+
+      use_req=false
+      if [[ "$3" == "-r" ]]
+      then
+        if [ ! -f "$4" ]
+        then
+          printf "\n\e[31m\e[1m!!!\e[0m Requirements file '\e[1m\e[3m%s\e[0m\e[0m' incorrect\n\n" "$4"
+          return 1
+        fi
+        use_req=true
+      fi
+
+      if [ $# -ge 3 ] && [[ "$3" != "-r" ]]
+      then
+        printf "\n\e[33m\e[1m!!!\e[0m Ignoring argument '\e[1m\e[3m%s\e[0m\e[0m' \n\n(did you mean '\e[1m\e[3m%s -a %s \e[33m-r\e[0m \e[1m%s\e[0m' ?)\n\n" "$3" "$main_func_name" "$2" "$3"
+      fi
+
+      try_deactivate
+      python3 -m venv "$PY_GLOBAL_VENVS_ROOT/$2"
+
+      if $use_req
+      then
+        source "$PY_GLOBAL_VENVS_ROOT/$2/bin/activate"
+        pip install --disable-pip-version-check -r "$4"
+        deactivate
+      fi
+
+      printf "\n\e[32m\e[1m!!!\e[0m Environment \e[1m\e[3m%s\e[0m\e[0m created\n\n" "$2"
+      ;;
+
+    -u|--upgrade)
+      if env_exists "$2"
+      then
+        try_deactivate
+        python3 -m venv --upgrade "$PY_GLOBAL_VENVS_ROOT/$2"
+        printf "\n\e[32m\e[1m!!!\e[0m Environment \e[1m\e[3m%s\e[0m\e[0m upgraded\n\n" "$2"
+      else
+        return 1
+      fi
+      ;;
+
+    -d|--delete)
+      if env_exists "$2"
+      then
+        printf "\n\e[31mDeleteing environment \e[3m\e[1m%s\e[0m\e[0m\e[0m\n" "$2"
+        read -r -n 1 -p "Are you sure? [y/N] " is_sure
+
+        if [[ $is_sure =~ ^[yY]$ ]]
+        then
+          echo
+          echo -n "Deleting..."
+          try_deactivate
+          rm -f -r "$PY_GLOBAL_VENVS_ROOT/$2"
+          echo -e "\\r                         "
+          printf "\n\e[32m\e[1m!!!\e[0m Environment \e[1m\e[3m%s\e[0m\e[0m deleted\n\n" "$2"
+        fi
+      else
+        return 1
+      fi
+      ;;
+
+    -c|--clone)
+      if ! env_exists "$2"; then return 1; fi
+
+      if [ "$2" == "$3" ]
+      then
+        printf "\n\e[1m\e[3mBase\e[0m\e[0m and \e[1m\e[3mNew\e[0m\e[0m environment names are identical\n\n"
+        return 1
+      fi
+
+      if env_exists "$3" --silent
+      then
+        printf "\n\e[31m\e[1m!!!\e[0m Environment \e[1m\e[3m%s\e[0m\e[0m already exists\n\n" "$3"
+      else
+        try_deactivate
+        python3 -m venv "$PY_GLOBAL_VENVS_ROOT/$3"
+        source "$PY_GLOBAL_VENVS_ROOT/$2/bin/activate"
+        pip freeze --disable-pip-version-check > "$PY_GLOBAL_VENVS_ROOT/$3/requirements.txt"
+        deactivate
+        source "$PY_GLOBAL_VENVS_ROOT/$3/bin/activate"
+        pip install --disable-pip-version-check -r "$PY_GLOBAL_VENVS_ROOT/$3/requirements.txt"
+        rm -f "$PY_GLOBAL_VENVS_ROOT/$3/requirements.txt"
+        deactivate
+        printf "\n\e[32m\e[1m!!!\e[0m Environment \e[1m\e[3m%s\e[0m\e[0m cloned successfully as \e[1m\e[3m%s\e[0m\e[0m\n\n" "$2" "$3"
+      fi
+      ;;
+
+    -i|--info)
+      if env_exists "$2"
+      then
+        try_deactivate
+        source "$PY_GLOBAL_VENVS_ROOT/$2/bin/activate"
+        printf "\nName     : \e[1m\e[3m%s\e[0m\e[0m\n" "$2"
+        printf "Location : \e[1m\e[3m%s\e[0m\e[0m\n\nInstalled packages\n" "$PY_GLOBAL_VENVS_ROOT/$2"
+        pip list --disable-pip-version-check
+        echo
+        deactivate
+      else
+        return 1
+      fi
+      ;;
+
+    -x|--execute)
+      if [ $# -lt 3 ]
+      then
+        printf "\n\e[1m\e[3m<command>\e[0m\e[0m argument(s) missing\n\n"
+        return 1
+      fi
+
+      if env_exists "$2"
+      then
+        try_deactivate
+        printf "\nExecuting : \e[1m\e[3m%s\e[0m\e[0m\nUsing Env : \e[1m\e[3m%s\e[0m\e[0m\n\n\n" "${*:3}" "$2"
+        source "$PY_GLOBAL_VENVS_ROOT/$2/bin/activate"
+        eval "${@:3}"
+        deactivate
+      else
+        retrun 1
+      fi
+      ;;
+
+    -*)
+      printf "\n\e[31m\e[1m!!!\e[0m Unknown command: '%s'\n\n" "$1"
+      print_usage
+      ;;
+
+    *)
+      if env_exists "$1"
+      then
+        source "$PY_GLOBAL_VENVS_ROOT/$1/bin/activate"
+        export PS1="\e[1m[\e[3m\e[34m`basename \"$VIRTUAL_ENV\"`\e[0m\e[1m]\e[0m $_OLD_VIRTUAL_PS1"
+      else
+        return 1
+      fi
+      ;;
+  esac
+
+  unset histchars
+}
